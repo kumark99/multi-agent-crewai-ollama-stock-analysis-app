@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CrewAI Stock Analysis – Architecture & Code Flow</title>
+  <style>
+    /* ── Reset & base ───────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:          #0d1117;
+      --bg2:         #161b27;
+      --bg3:         #1e2436;
+      --border:      #2a3050;
+      --purple:      #6c63ff;
+      --purple-lite: #8b85ff;
+      --teal:        #00c9a7;
+      --gold:        #ffd166;
+      --red:         #ef476f;
+      --text:        #e2e8f0;
+      --text-muted:  #8892b0;
+      --text-dim:    #5a6380;
+      --agent1:      #6c63ff;
+      --agent2:      #ffd166;
+      --agent3:      #00c9a7;
+      --code-bg:     #11151f;
+      --tag-py:      rgba(108,99,255,0.2);
+      --tag-js:      rgba(255,209,102,0.2);
+      --tag-ws:      rgba(0,201,167,0.2);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    a { color: var(--purple-lite); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Layout ──────────────────────────────────────────────────────────────── */
+    .layout { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 280px;
+      min-width: 260px;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 24px 0 40px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo {
+      padding: 0 24px 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    .sidebar-logo .app-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.01em;
+    }
+    .sidebar-logo .app-sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    .nav-group { margin-bottom: 8px; }
+    .nav-group-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      padding: 8px 24px 4px;
+    }
+    .nav-item {
+      display: block;
+      padding: 7px 24px;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      transition: all 0.15s;
+      border-left: 2px solid transparent;
+    }
+    .nav-item:hover {
+      color: var(--text);
+      background: rgba(108,99,255,0.06);
+      text-decoration: none;
+      border-left-color: var(--purple);
+    }
+    .nav-item .nav-num {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-right: 6px;
+      font-family: monospace;
+    }
+
+    /* Main content */
+    .main {
+      flex: 1;
+      max-width: 960px;
+      padding: 48px 52px 80px;
+      min-width: 0;
+    }
+
+    /* ── Typography ───────────────────────────────────────────────────────────── */
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--purple-lite), var(--teal));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+      line-height: 1.2;
+    }
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 1rem;
+      margin-bottom: 40px;
+    }
+
+    h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text);
+      margin: 48px 0 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    h2 .section-icon { font-size: 1.1rem; }
+
+    h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--purple-lite);
+      margin: 28px 0 10px;
+    }
+
+    h4 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--teal);
+      margin: 18px 0 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    p { margin-bottom: 12px; color: var(--text); }
+    ul, ol { margin: 10px 0 14px 22px; }
+    li { margin-bottom: 5px; color: var(--text); }
+
+    /* ── Cards ───────────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+    .card-purple { border-left: 3px solid var(--purple); }
+    .card-teal   { border-left: 3px solid var(--teal); }
+    .card-gold   { border-left: 3px solid var(--gold); }
+    .card-red    { border-left: 3px solid var(--red); }
+
+    /* ── Badges / tags ────────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+      letter-spacing: 0.04em;
+      vertical-align: middle;
+      text-transform: uppercase;
+    }
+    .badge-py  { background: var(--tag-py);  color: var(--purple-lite); border: 1px solid var(--purple); }
+    .badge-js  { background: var(--tag-js);  color: var(--gold);        border: 1px solid var(--gold); }
+    .badge-ws  { background: var(--tag-ws);  color: var(--teal);        border: 1px solid var(--teal); }
+    .badge-red { background: rgba(239,71,111,0.15); color: var(--red);  border: 1px solid var(--red); }
+
+    /* ── Code blocks ─────────────────────────────────────────────────────────── */
+    code {
+      font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.84em;
+      background: var(--bg3);
+      padding: 2px 7px;
+      border-radius: 4px;
+      color: var(--gold);
+      border: 1px solid var(--border);
+    }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 22px;
+      overflow-x: auto;
+      margin: 12px 0 20px;
+      line-height: 1.55;
+    }
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 0.82rem;
+      color: #c8d3f5;
+    }
+
+    .kw  { color: #bb9af7; }
+    .fn  { color: #7dcfff; }
+    .str { color: #9ece6a; }
+    .cm  { color: #565f89; font-style: italic; }
+    .num { color: #ff9e64; }
+
+    /* ── File path pill ───────────────────────────────────────────────────────── */
+    .filepath {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 12px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: var(--teal);
+      margin: 4px 0;
+    }
+    .filepath::before { content: '📄'; font-size: 0.75rem; }
+
+    /* ── Flow diagram ────────────────────────────────────────────────────────── */
+    .flow-diagram {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px 20px;
+      margin: 24px 0;
+      text-align: center;
+      overflow-x: auto;
+    }
+
+    .flow-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .flow-box {
+      background: var(--bg3);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 18px;
+      min-width: 130px;
+      font-size: 0.82rem;
+      color: var(--text);
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .flow-box.purple { border-color: var(--purple); background: rgba(108,99,255,0.07); }
+    .flow-box.teal   { border-color: var(--teal);   background: rgba(0,201,167,0.07); }
+    .flow-box.gold   { border-color: var(--gold);   background: rgba(255,209,102,0.07); }
+    .flow-box.red    { border-color: var(--red);    background: rgba(239,71,111,0.07); }
+
+    .flow-box .box-title { font-weight: 700; font-size: 0.85rem; margin-bottom: 2px; }
+    .flow-box .box-sub   { font-size: 0.72rem; color: var(--text-muted); }
+
+    .arrow {
+      color: var(--text-dim);
+      font-size: 1.3rem;
+      flex-shrink: 0;
+    }
+
+    .arrow-down {
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 1.4rem;
+      margin: 4px 0;
+    }
+
+    /* ── Agent cards ─────────────────────────────────────────────────────────── */
+    .agent-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+
+    .agent-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .agent-card.a1 { border-top: 3px solid var(--agent1); }
+    .agent-card.a2 { border-top: 3px solid var(--agent2); }
+    .agent-card.a3 { border-top: 3px solid var(--agent3); }
+
+    .agent-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .agent-icon {
+      font-size: 1.5rem;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: var(--bg3);
+    }
+    .agent-title { font-weight: 700; font-size: 0.95rem; }
+    .agent-role  { font-size: 0.78rem; color: var(--text-muted); }
+
+    .agent-detail { font-size: 0.83rem; color: var(--text-muted); margin: 4px 0; }
+    .agent-detail strong { color: var(--text); }
+
+    .tool-list { list-style: none; margin: 8px 0 0; padding: 0; }
+    .tool-list li {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 5px 10px;
+      margin-bottom: 5px;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* ── WebSocket event table ────────────────────────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin: 14px 0;
+    }
+    th {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 9px 14px;
+      text-align: left;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    td {
+      border: 1px solid var(--border);
+      padding: 9px 14px;
+      color: var(--text);
+      vertical-align: top;
+    }
+    tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
+
+    /* ── Callout boxes ───────────────────────────────────────────────────────── */
+    .callout {
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: 0.88rem;
+      border-left: 3px solid;
+    }
+    .callout-info  { background: rgba(108,99,255,0.08); border-color: var(--purple); color: #c5c0ff; }
+    .callout-tip   { background: rgba(0,201,167,0.08);  border-color: var(--teal);   color: #a0ede0; }
+    .callout-warn  { background: rgba(255,209,102,0.08); border-color: var(--gold);  color: #ffe6a0; }
+    .callout strong { color: #fff; display: block; margin-bottom: 4px; }
+
+    /* ── Sequence steps ──────────────────────────────────────────────────────── */
+    .steps { list-style: none; padding: 0; margin: 16px 0; }
+    .steps li {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      font-size: 0.875rem;
+    }
+    .steps li:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .step-num {
+      width: 26px;
+      height: 26px;
+      min-width: 26px;
+      border-radius: 50%;
+      background: var(--purple);
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+    }
+    .step-content strong { color: var(--purple-lite); display: block; margin-bottom: 2px; }
+
+    /* ── HR ───────────────────────────────────────────────────────────────────── */
+    hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+
+    /* ── Scroll anchor offset ─────────────────────────────────────────────────── */
+    [id] { scroll-margin-top: 28px; }
+
+    /* ── Responsive ───────────────────────────────────────────────────────────── */
+    @media (max-width: 860px) {
+      .sidebar { display: none; }
+      .main { padding: 28px 24px 60px; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ══════════════════════ SIDEBAR ══════════════════════ -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <div class="app-title">🤖 CrewAI Stock Analyser</div>
+      <div class="app-sub">Architecture &amp; Code Flow</div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Overview</div>
+      <a href="#overview"    class="nav-item"><span class="nav-num">01</span> System Overview</a>
+      <a href="#stack"       class="nav-item"><span class="nav-num">02</span> Technology Stack</a>
+      <a href="#folder"      class="nav-item"><span class="nav-num">03</span> Folder Structure</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Backend</div>
+      <a href="#config"      class="nav-item"><span class="nav-num">04</span> config.py</a>
+      <a href="#main"        class="nav-item"><span class="nav-num">05</span> main.py – FastAPI</a>
+      <a href="#crew"        class="nav-item"><span class="nav-num">06</span> crew.py – Orchestration</a>
+      <a href="#agents"      class="nav-item"><span class="nav-num">07</span> Agents</a>
+      <a href="#tasks"       class="nav-item"><span class="nav-num">08</span> Tasks</a>
+      <a href="#tools"       class="nav-item"><span class="nav-num">09</span> Tools</a>
+      <a href="#pdf"         class="nav-item"><span class="nav-num">10</span> PDF Generator</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Frontend</div>
+      <a href="#fe-overview" class="nav-item"><span class="nav-num">11</span> React App Overview</a>
+      <a href="#fe-ws"       class="nav-item"><span class="nav-num">12</span> WebSocket Hook</a>
+      <a href="#fe-comp"     class="nav-item"><span class="nav-num">13</span> Components</a>
+      <a href="#fe-api"      class="nav-item"><span class="nav-num">14</span> API Service</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Data Flows</div>
+      <a href="#ws-events"   class="nav-item"><span class="nav-num">15</span> WebSocket Events</a>
+      <a href="#end-to-end"  class="nav-item"><span class="nav-num">16</span> End-to-End Flow</a>
+      <a href="#caching"     class="nav-item"><span class="nav-num">17</span> Caching Strategy</a>
+      <a href="#news-routing" class="nav-item"><span class="nav-num">18</span> News Routing (.NS)</a>
+      <a href="#errors"      class="nav-item"><span class="nav-num">19</span> Error &amp; Rate-Limit</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Reference</div>
+      <a href="#api-ref"     class="nav-item"><span class="nav-num">20</span> API Reference</a>
+      <a href="#running"     class="nav-item"><span class="nav-num">21</span> Running the App</a>
+    </div>
+  </nav>
+
+  <!-- ══════════════════════ MAIN CONTENT ══════════════════════ -->
+  <main class="main">
+
+    <!-- TITLE -->
+    <h1>CrewAI Multi-Agent Stock Analyser</h1>
+    <p class="subtitle">Complete architecture, code flow &amp; functional reference — generated 5 March 2026</p>
+
+    <!-- ─────────────────── 1. OVERVIEW ─────────────────── -->
+    <h2 id="overview"><span class="section-icon">🗺️</span> System Overview</h2>
+
+    <p>
+      The application is a <strong>full-stack, real-time stock analysis system</strong> that
+      orchestrates three specialised AI agents via <strong>CrewAI</strong>, running local LLMs
+      through <strong>Ollama</strong>. Each analysis session is streamed live to the browser
+      over a <strong>WebSocket</strong>, and the final result is rendered as a
+      downloadable <strong>PDF report</strong>.
+    </p>
+
+    <div class="flow-diagram">
+      <div class="flow-row">
+        <div class="flow-box purple">
+          <div class="box-title">🌐 React Frontend</div>
+          <div class="box-sub">port 3000</div>
+        </div>
+        <div class="arrow">⟺</div>
+        <div class="flow-box teal">
+          <div class="box-title">⚡ FastAPI Backend</div>
+          <div class="box-sub">port 8000 · REST + WS</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="flow-box gold">
+          <div class="box-title">🦾 Ollama LLM</div>
+          <div class="box-sub">port 11434 (local)</div>
+        </div>
+      </div>
+      <div class="arrow-down">↕</div>
+      <div class="flow-row">
+        <div class="flow-box" style="border-color:var(--agent1);background:rgba(108,99,255,0.07);">
+          <div class="box-title">📊 Agent 1</div>
+          <div class="box-sub">Stock Analyst</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="flow-box" style="border-color:var(--agent2);background:rgba(255,209,102,0.07);">
+          <div class="box-title">📰 Agent 2</div>
+          <div class="box-sub">News Researcher</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="flow-box" style="border-color:var(--agent3);background:rgba(0,201,167,0.07);">
+          <div class="box-title">🎯 Agent 3</div>
+          <div class="box-sub">Investment Strategist</div>
+        </div>
+      </div>
+      <div class="arrow-down">↓</div>
+      <div class="flow-row">
+        <div class="flow-box red">
+          <div class="box-title">📄 PDF Report</div>
+          <div class="box-sub">ReportLab · /reports/</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout callout-info">
+      <strong>Sequential Pipeline</strong>
+      CrewAI runs the three agents in strict order — Agent 1 must complete before Agent 2 starts,
+      and Agent 3 receives both outputs as context. This ensures the final report always
+      incorporates complete fundamental, technical, and news data.
+    </div>
+
+    <!-- ─────────────────── 2. STACK ─────────────────── -->
+    <h2 id="stack"><span class="section-icon">📦</span> Technology Stack</h2>
+
+    <table>
+      <thead>
+        <tr><th>Layer</th><th>Technology</th><th>Version</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Backend runtime</td><td>Python</td><td>3.13.7</td><td>Core language</td></tr>
+        <tr><td>API framework</td><td>FastAPI + Uvicorn</td><td>0.115.0 / 0.32.0</td><td>REST &amp; WebSocket server</td></tr>
+        <tr><td>Agent framework</td><td>CrewAI</td><td>latest</td><td>Multi-agent orchestration</td></tr>
+        <tr><td>LLM gateway</td><td>Ollama</td><td>local</td><td>Run open-source LLMs locally</td></tr>
+        <tr><td>LLM bridge</td><td>langchain-ollama</td><td>0.2.0</td><td>CrewAI ↔ Ollama interface</td></tr>
+        <tr><td>Market data</td><td>yfinance</td><td>≥1.0.0 (1.2.0)</td><td>Fundamentals &amp; OHLCV data</td></tr>
+        <tr><td>Technical analysis</td><td>ta</td><td>0.11.0</td><td>RSI, MACD, BB, Stochastic, ATR</td></tr>
+        <tr><td>Indian news</td><td>requests + BeautifulSoup4</td><td>≥4.12.0</td><td>Scrape Zerodha Pulse</td></tr>
+        <tr><td>Global news</td><td>duckduckgo-search</td><td>6.3.7</td><td>DuckDuckGo news API</td></tr>
+        <tr><td>PDF generation</td><td>ReportLab</td><td>4.2.5</td><td>Styled PDF report</td></tr>
+        <tr><td>Data wrangling</td><td>pandas / numpy</td><td>≥2.2.3 / ≥2.1.0</td><td>OHLCV processing</td></tr>
+        <tr><td>Frontend</td><td>React 18</td><td>18.x</td><td>Single-page UI</td></tr>
+        <tr><td>UI styling</td><td>Bootstrap 5.3 CDN</td><td>5.3</td><td>Responsive layout</td></tr>
+        <tr><td>Icons</td><td>react-icons (FI set)</td><td>5.3</td><td>UI icons</td></tr>
+        <tr><td>Config</td><td>pydantic-settings</td><td>2.5.2</td><td>.env ↔ typed settings</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ─────────────────── 3. FOLDER STRUCTURE ─────────────────── -->
+    <h2 id="folder"><span class="section-icon">📁</span> Folder Structure</h2>
+
+    <pre><code>crewai-multiagent-ollama/
+├── backend/                    <span class="cm"># FastAPI + CrewAI backend</span>
+│   ├── <span class="str">main.py</span>                 <span class="cm"># FastAPI app, REST + WebSocket endpoints</span>
+│   ├── <span class="str">crew.py</span>                 <span class="cm"># StockAnalysisCrew – pipeline orchestrator</span>
+│   ├── <span class="str">config.py</span>               <span class="cm"># Pydantic settings (Ollama URL, model, dirs)</span>
+│   ├── requirements.txt
+│   ├── .env.example
+│   ├── agents/
+│   │   ├── <span class="str">stock_analyst.py</span>    <span class="cm"># Agent 1 – fundamental + technical</span>
+│   │   ├── <span class="str">news_researcher.py</span>  <span class="cm"># Agent 2 – news + sentiment</span>
+│   │   └── <span class="str">report_writer.py</span>    <span class="cm"># Agent 3 – report writing</span>
+│   ├── tasks/
+│   │   ├── <span class="str">analysis_tasks.py</span>   <span class="cm"># Task 1 – fundamental + technical task spec</span>
+│   │   ├── <span class="str">news_tasks.py</span>       <span class="cm"># Task 2 – news research task spec</span>
+│   │   └── <span class="str">report_tasks.py</span>     <span class="cm"># Task 3 – investment report task spec</span>
+│   ├── tools/
+│   │   ├── <span class="str">stock_tools.py</span>      <span class="cm"># StockDataTool, TechnicalAnalysisTool (yfinance/ta)</span>
+│   │   ├── <span class="str">news_tools.py</span>       <span class="cm"># StockNewsTool, MarketSentimentTool (Pulse/DDG)</span>
+│   │   └── <span class="str">pdf_generator.py</span>    <span class="cm"># generate_pdf_report() – ReportLab PDF</span>
+│   └── reports/                <span class="cm"># Generated PDF output directory</span>
+├── frontend/                   <span class="cm"># React 18 SPA</span>
+│   └── src/
+│       ├── <span class="str">App.js</span>              <span class="cm"># Root component, state machine, WS wiring</span>
+│       ├── components/
+│       │   ├── <span class="str">Header.jsx</span>
+│       │   ├── <span class="str">LLMConfig.jsx</span>       <span class="cm"># Ollama URL + model picker</span>
+│       │   ├── <span class="str">StockInput.jsx</span>      <span class="cm"># Ticker input + quick-pick buttons</span>
+│       │   ├── <span class="str">AgentFlowDiagram.jsx</span><span class="cm"># Visual 3-agent progress tracker</span>
+│       │   ├── <span class="str">ActivityLog.jsx</span>     <span class="cm"># Scrollable real-time event feed</span>
+│       │   └── <span class="str">ReportViewer.jsx</span>    <span class="cm"># Download PDF button</span>
+│       ├── hooks/
+│       │   └── <span class="str">useWebSocket.js</span>     <span class="cm"># WS connect / disconnect / send hook</span>
+│       └── services/
+│           └── <span class="str">api.js</span>              <span class="cm"># REST helpers (fetchModels, checkHealth)</span>
+└── docs/
+    └── <span class="str">architecture.html</span>       <span class="cm"># ← this document</span></code></pre>
+
+    <!-- ─────────────────── 4. config.py ─────────────────── -->
+    <h2 id="config"><span class="section-icon">⚙️</span> <span class="badge badge-py">Python</span> config.py</h2>
+
+    <span class="filepath">backend/config.py</span>
+
+    <p>Typed application settings via <strong>pydantic-settings</strong>. Values are read from
+    environment variables or a <code>.env</code> file at startup.</p>
+
+    <table>
+      <thead><tr><th>Setting</th><th>Default</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>ollama_base_url</code></td><td><code>http://localhost:11434</code></td><td>Ollama REST API base URL</td></tr>
+        <tr><td><code>default_llm_model</code></td><td><code>llama3.2</code></td><td>Ollama model name used when the frontend does not specify one</td></tr>
+        <tr><td><code>reports_dir</code></td><td><code>reports</code></td><td>Directory where generated PDFs are saved</td></tr>
+        <tr><td><code>cors_origins</code></td><td><code>["http://localhost:3000", …]</code></td><td>CORS whitelist (unused at runtime; main.py allows all)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-tip">
+      <strong>How to override</strong>
+      Copy <code>.env.example</code> to <code>.env</code> and set e.g.
+      <code>OLLAMA_BASE_URL=http://192.168.1.10:11434</code> to point to a remote Ollama instance.
+    </div>
+
+    <!-- ─────────────────── 5. main.py ─────────────────── -->
+    <h2 id="main"><span class="section-icon">🚀</span> <span class="badge badge-py">Python</span> main.py – FastAPI Application</h2>
+
+    <span class="filepath">backend/main.py</span>
+
+    <p>The entry-point. Defines REST endpoints, a <code>ConnectionManager</code> for WebSocket
+    sessions, and wires incoming WS messages to <code>StockAnalysisCrew</code>.</p>
+
+    <h3>ConnectionManager</h3>
+    <p>Maintains a dictionary <code>{ session_id → WebSocket }</code>. Each analysis run gets a
+    UUID-based session ID. The manager's <code>send()</code> method serialises a Python dict to
+    JSON and writes it to the correct socket.</p>
+
+    <h3>REST Endpoints</h3>
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge badge-ws">GET</span></td>
+          <td><code>/api/health</code></td>
+          <td>Liveness probe – returns <code>{"status":"ok"}</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-ws">GET</span></td>
+          <td><code>/api/models?base_url=…</code></td>
+          <td>Queries Ollama <code>/api/tags</code> and returns available model names.
+          Falls back to a static list if Ollama is unreachable.</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-ws">GET</span></td>
+          <td><code>/api/report/{session_id}</code></td>
+          <td>Streams the generated PDF as <code>application/pdf</code>.
+          Returns 404 if PDF not yet created.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>WebSocket Endpoint – <code>/ws/{session_id}</code></h3>
+    <p>The primary communication channel. On connection:</p>
+    <ol class="steps">
+      <li><div class="step-num">1</div><div class="step-content">
+        <strong>Accept and register</strong>
+        <code>manager.connect(ws, session_id)</code> stores the socket.
+      </div></li>
+      <li><div class="step-num">2</div><div class="step-content">
+        <strong>Receive JSON message</strong>
+        Reads <code>{ symbol, llm_model, ollama_base_url }</code> from the client.
+      </div></li>
+      <li><div class="step-num">3</div><div class="step-content">
+        <strong>Create crew &amp; run</strong>
+        Instantiates <code>StockAnalysisCrew</code> with a <code>send_update</code>
+        callback, then calls <code>await crew.run()</code>.
+      </div></li>
+      <li><div class="step-num">4</div><div class="step-content">
+        <strong>Cleanup on disconnect</strong>
+        Handles <code>WebSocketDisconnect</code> gracefully.
+      </div></li>
+    </ol>
+
+    <!-- ─────────────────── 6. crew.py ─────────────────── -->
+    <h2 id="crew"><span class="section-icon">🎛️</span> <span class="badge badge-py">Python</span> crew.py – Pipeline Orchestration</h2>
+
+    <span class="filepath">backend/crew.py</span>
+
+    <p>The most architecturally important file. <code>StockAnalysisCrew</code> bridges the
+    <em>synchronous</em> CrewAI execution model with <em>async</em> FastAPI/WebSocket.</p>
+
+    <h3>The Thread-Bridge Pattern</h3>
+    <p>CrewAI's <code>crew.kickoff()</code> is a blocking synchronous call. It cannot yield
+    control back to the asyncio event loop. The bridge works as follows:</p>
+
+    <pre><code><span class="cm"># crew.py – simplified</span>
+<span class="cm"># 1. CrewAI runs in a thread-pool executor (non-blocking)</span>
+future = loop.run_in_executor(<span class="kw">None</span>, self._run_crew_sync)
+
+<span class="cm"># 2. Async loop polls an in-process Queue every 150 ms</span>
+<span class="kw">while not</span> future.done():
+    <span class="kw">await</span> self._drain_queue()    <span class="cm"># send buffered events via WebSocket</span>
+    <span class="kw">await</span> asyncio.sleep(<span class="num">0.15</span>)
+
+<span class="cm"># 3. Final drain after crew finishes</span>
+<span class="kw">await</span> self._drain_queue()</code></pre>
+
+    <h3>Event Queue</h3>
+    <p>CrewAI callbacks (<code>_step_callback</code>, <code>_task_callback</code>) run on the
+    thread-pool thread and write dicts into a <code>queue.Queue</code>. The async event loop
+    drains this queue and forwards events over WebSocket. This is thread-safe because
+    <code>queue.Queue</code> is designed for producer/consumer across threads.</p>
+
+    <h3>Callback Hooks</h3>
+    <table>
+      <thead><tr><th>Callback</th><th>Trigger</th><th>Emits Event</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>_step_callback(step_output)</code></td>
+          <td>After every agent reasoning step or tool call</td>
+          <td><code>tool_use</code> or <code>thinking</code></td>
+        </tr>
+        <tr>
+          <td><code>_task_callback(task_output)</code></td>
+          <td>After each of the 3 tasks completes</td>
+          <td><code>task_complete</code> then <code>agent_start</code> (for next agent)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>PDF Generation (post-crew)</h3>
+    <p>After the crew finishes, the orchestrator:</p>
+    <ol>
+      <li>Calls <code>_fetch_stock_info(symbol)</code> — hits the 5-minute TTL cache populated
+      by Agent 1, so <strong>no extra network request</strong> is made.</li>
+      <li>Calls <code>generate_pdf_report(report_text, symbol, session_id, stock_data=…)</code>.</li>
+      <li>Emits a <code>crew_complete</code> event with the PDF download URL.</li>
+    </ol>
+
+    <!-- ─────────────────── 7. AGENTS ─────────────────── -->
+    <h2 id="agents"><span class="section-icon">🤖</span> <span class="badge badge-py">Python</span> Agents</h2>
+
+    <p>Each agent is a <code>crewai.Agent</code> instance built by a factory function.
+    Key parameters: <code>role</code>, <code>goal</code>, <code>backstory</code>,
+    <code>tools</code>, <code>max_iter</code>, <code>allow_delegation=False</code>.</p>
+
+    <div class="agent-grid">
+
+      <!-- Agent 1 -->
+      <div class="agent-card a1">
+        <div class="agent-header">
+          <div class="agent-icon">📊</div>
+          <div>
+            <div class="agent-title">Stock Analyst</div>
+            <div class="agent-role">Agent 1</div>
+          </div>
+        </div>
+        <span class="filepath" style="font-size:0.72rem;">agents/stock_analyst.py</span>
+        <p class="agent-detail" style="margin-top:10px;"><strong>Role:</strong> Senior Stock Market Analyst</p>
+        <p class="agent-detail"><strong>Max Iterations:</strong> 8</p>
+        <p class="agent-detail"><strong>Tools:</strong></p>
+        <ul class="tool-list">
+          <li>🔧 StockDataTool</li>
+          <li>🔧 TechnicalAnalysisTool</li>
+        </ul>
+        <p class="agent-detail" style="margin-top:8px;">
+          Performs fundamental analysis (P/E, market cap, ROE, margins…) and
+          technical analysis (RSI, MACD, Bollinger Bands, SMA/EMA…).
+          Outputs a preliminary sentiment score 1–10.
+        </p>
+      </div>
+
+      <!-- Agent 2 -->
+      <div class="agent-card a2">
+        <div class="agent-header">
+          <div class="agent-icon">📰</div>
+          <div>
+            <div class="agent-title">News Researcher</div>
+            <div class="agent-role">Agent 2</div>
+          </div>
+        </div>
+        <span class="filepath" style="font-size:0.72rem;">agents/news_researcher.py</span>
+        <p class="agent-detail" style="margin-top:10px;"><strong>Role:</strong> Financial News Researcher &amp; Sentiment Analyst</p>
+        <p class="agent-detail"><strong>Max Iterations:</strong> 8</p>
+        <p class="agent-detail"><strong>Tools:</strong></p>
+        <ul class="tool-list">
+          <li>🔧 StockNewsTool</li>
+          <li>🔧 MarketSentimentTool</li>
+        </ul>
+        <p class="agent-detail" style="margin-top:8px;">
+          Fetches recent news articles and analyst sentiment. For Indian stocks
+          (<code>.NS</code>/<code>.BO</code>) uses Zerodha Pulse; for all others
+          uses DuckDuckGo News.
+        </p>
+      </div>
+
+      <!-- Agent 3 -->
+      <div class="agent-card a3">
+        <div class="agent-header">
+          <div class="agent-icon">🎯</div>
+          <div>
+            <div class="agent-title">Investment Strategist</div>
+            <div class="agent-role">Agent 3</div>
+          </div>
+        </div>
+        <span class="filepath" style="font-size:0.72rem;">agents/report_writer.py</span>
+        <p class="agent-detail" style="margin-top:10px;"><strong>Role:</strong> Senior Investment Strategist &amp; Report Writer</p>
+        <p class="agent-detail"><strong>Max Iterations:</strong> 6 (no tools — writing only)</p>
+        <p class="agent-detail"><strong>Tools:</strong> None</p>
+        <p class="agent-detail" style="margin-top:8px;">
+          Synthesises Agent 1 and Agent 2 outputs into an 800–1200 word
+          institutional-grade report with BUY/HOLD/SELL recommendation,
+          price targets, bull/bear case, and risk factors.
+        </p>
+      </div>
+
+    </div>
+
+    <div class="callout callout-warn">
+      <strong>max_iter behaviour</strong>
+      Each iteration is one <em>think → act → observe</em> loop. If an agent
+      has not produced a Final Answer by its <code>max_iter</code> limit,
+      CrewAI forces a graceful exit using the best partial output available.
+      Agent 3 gets fewer iterations (6) because it has no tools to call.
+    </div>
+
+    <!-- ─────────────────── 8. TASKS ─────────────────── -->
+    <h2 id="tasks"><span class="section-icon">📋</span> <span class="badge badge-py">Python</span> Tasks</h2>
+
+    <p>Tasks define <em>what</em> an agent must do and what its output should look like.
+    Each task is a <code>crewai.Task</code> with a <code>description</code>,
+    <code>expected_output</code>, and an assigned <code>agent</code>.</p>
+
+    <div class="card card-purple">
+      <h4>Task 1 — Fundamental &amp; Technical Analysis</h4>
+      <span class="filepath" style="font-size:0.72rem;">tasks/analysis_tasks.py</span>
+      <p style="margin-top:10px;">Instructs Agent 1 to call both tools and produce a report with
+      three labelled sections: <em>Fundamental Analysis</em>, <em>Technical Analysis</em>,
+      and <em>Preliminary Assessment</em> with scores 1–10.</p>
+    </div>
+
+    <div class="card card-gold">
+      <h4>Task 2 — News Research &amp; Sentiment</h4>
+      <span class="filepath" style="font-size:0.72rem;">tasks/news_tasks.py</span>
+      <p style="margin-top:10px;">Instructs Agent 2 to fetch and summarise the top 8–10 news
+      stories, corporate events, analyst activity, macro context, and provide a
+      News Sentiment Score 1–10.</p>
+    </div>
+
+    <div class="card card-teal">
+      <h4>Task 3 — Investment Report Generation</h4>
+      <span class="filepath" style="font-size:0.72rem;">tasks/report_tasks.py</span>
+      <p style="margin-top:10px;">Uses <code>context=[analysis_task, news_task]</code> so Agent 3
+      automatically receives the outputs of both previous tasks. Instructs the
+      writing of an 8-section report (Executive Summary → Company Overview →
+      Fundamental → Technical → News → Recommendation → Risks → Conclusion)
+      with a clear BUY/HOLD/SELL verdict and price target ranges.</p>
+    </div>
+
+    <!-- ─────────────────── 9. TOOLS ─────────────────── -->
+    <h2 id="tools"><span class="section-icon">🔧</span> <span class="badge badge-py">Python</span> Tools</h2>
+
+    <h3>stock_tools.py</h3>
+    <span class="filepath">backend/tools/stock_tools.py</span>
+
+    <h4>StockDataTool – "Get Stock Fundamental Data"</h4>
+    <p>Calls <code>_get_info(symbol)</code> → <code>yf.Ticker.info</code> with
+    <code>fast_info</code> fallback for price fields. Returns JSON with 30+ fundamental
+    metrics.</p>
+
+    <h4>TechnicalAnalysisTool – "Get Technical Analysis Indicators"</h4>
+    <p>Calls <code>_get_history(symbol, "6mo")</code> → <code>yf.download()</code> primary
+    (less rate-limited), <code>ticker.history()</code> fallback. Feeds the OHLCV DataFrame
+    to the <code>ta</code> library and computes:</p>
+    <ul>
+      <li>RSI (14), MACD (12/26/9), Bollinger Bands (20/2σ)</li>
+      <li>Stochastic Oscillator (%K, %D), ATR (14)</li>
+      <li>SMA-20, SMA-50, SMA-200, EMA-20</li>
+      <li>1W / 1M / 3M / 6M / YTD return percentages</li>
+      <li>Volume vs 20-day average ratio</li>
+    </ul>
+
+    <h4>Cache Architecture</h4>
+    <pre><code><span class="cm"># Module-level, shared across both tools and crew.py</span>
+_INFO_CACHE: dict[str, dict]         <span class="cm"># ticker → info dict</span>
+_HIST_CACHE: dict[str, pd.DataFrame] <span class="cm"># ticker → OHLCV dataframe</span>
+_CACHE_TS:   dict[str, float]        <span class="cm"># ticker → last-fetch Unix timestamp</span>
+_CACHE_TTL   = <span class="num">300</span>                   <span class="cm"># 5-minute TTL</span>
+_CACHE_LOCK  = Lock()                <span class="cm"># thread-safe (runs in executor thread)</span></code></pre>
+
+    <hr />
+
+    <h3>news_tools.py</h3>
+    <span class="filepath">backend/tools/news_tools.py</span>
+
+    <h4>StockNewsTool – "Get Stock News"</h4>
+    <p>Routing logic based on the exchange suffix:</p>
+
+    <table>
+      <thead><tr><th>Symbol type</th><th>Source</th><th>Fallback</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>*.NS</code> / <code>*.BO</code> (Indian)</td>
+          <td>🇮🇳 <strong>Zerodha Pulse</strong> — scrapes <code>pulse.zerodha.com</code></td>
+          <td>DuckDuckGo News with Indian context keywords</td>
+        </tr>
+        <tr>
+          <td>All other symbols</td>
+          <td>🌐 <strong>DuckDuckGo News</strong> — <code>ddgs.news(query, max_results=12)</code></td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>The Zerodha Pulse scraper uses <code>_NSE_ALIASES</code> (a dict of 50+ tickers →
+    common headline names) to match articles even when the full company name
+    appears in text (e.g. <code>COALINDIA</code> → <code>"Coal India"</code>).</p>
+
+    <h4>MarketSentimentTool – "Get Market Sentiment"</h4>
+    <p>Uses DuckDuckGo <code>ddgs.text()</code> with two queries. For <code>.NS</code>/<code>.BO</code>
+    stocks the queries use Indian market context (<em>"NSE analyst rating", "Moneycontrol",
+    "Economic Times", "NDTV Profit"</em>). Also retrieves yfinance analyst consensus
+    (target mean/high/low, recommendation key, number of analyst opinions).</p>
+
+    <!-- ─────────────────── 10. PDF GENERATOR ─────────────────── -->
+    <h2 id="pdf"><span class="section-icon">📄</span> <span class="badge badge-py">Python</span> pdf_generator.py</h2>
+
+    <span class="filepath">backend/tools/pdf_generator.py</span>
+
+    <p>Generates a styled A4 PDF using <strong>ReportLab Platypus</strong>.</p>
+
+    <h3>Report Structure</h3>
+    <table>
+      <thead><tr><th>Element</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>Cover page</td><td>Dark-navy background, stock ticker, date, "AI-Generated Investment Research" header</td></tr>
+        <tr><td>Key Metrics Banner</td><td>6-cell grid: Current Price (purple), Day Change (teal/red), Market Cap, P/E TTM, 52W High, 52W Low — populated from cached yfinance data</td></tr>
+        <tr><td>Recommendation Badge</td><td>Colour-coded BUY (teal) / HOLD (gold) / SELL (red) pill extracted from Agent 3's text</td></tr>
+        <tr><td>Page break</td><td>Separates cover from body</td></tr>
+        <tr><td>8 content sections</td><td>Parsed from Agent 3's markdown-style output; each section gets a styled header</td></tr>
+        <tr><td>Footer</td><td>Page number + disclaimer on every page</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Key Functions</h3>
+    <ul>
+      <li><code>generate_pdf_report(report_text, symbol, session_id, output_dir, stock_data)</code> — main entry point</li>
+      <li><code>_key_metrics_table(stock_data, styles, w)</code> — builds the 6-cell cover banner from raw yfinance info dict</li>
+      <li><code>_extract_recommendation(text)</code> — regex scan for BUY / HOLD / SELL keyword</li>
+      <li><code>_build_styles()</code> — creates all <code>ParagraphStyle</code> objects</li>
+    </ul>
+
+    <!-- ─────────────────── 11. FRONTEND OVERVIEW ─────────────────── -->
+    <h2 id="fe-overview"><span class="section-icon">🌐</span> <span class="badge badge-js">React</span> Frontend Overview</h2>
+
+    <span class="filepath">frontend/src/App.js</span>
+
+    <p>Single-page React 18 application. All global state lives in <code>App.js</code>;
+    child components are purely presentational (receive props and callbacks).</p>
+
+    <h3>Global State (useState)</h3>
+    <table>
+      <thead><tr><th>State</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>config</code></td><td>object</td><td><code>{ ollamaUrl, model }</code> — persisted to <code>localStorage</code></td></tr>
+        <tr><td><code>symbol</code></td><td>string</td><td>Current ticker input value</td></tr>
+        <tr><td><code>analysisStatus</code></td><td>string</td><td><code>idle | analyzing | complete | error</code></td></tr>
+        <tr><td><code>agents</code></td><td>array</td><td>3 agent objects with <code>{ id, name, role, icon, status }</code> where <code>status</code> is <code>waiting | active | complete | error</code></td></tr>
+        <tr><td><code>logs</code></td><td>array</td><td>Chronological list of WebSocket events shown in ActivityLog</td></tr>
+        <tr><td><code>reportUrl</code></td><td>string|null</td><td>PDF download URL once analysis is complete</td></tr>
+        <tr><td><code>sessionId</code></td><td>string|null</td><td>UUID generated per analysis run</td></tr>
+        <tr><td><code>ollamaConnected</code></td><td>bool|null</td><td>Ollama connectivity status (shown in Header)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Analysis Flow (App.js)</h3>
+    <ol class="steps">
+      <li><div class="step-num">1</div><div class="step-content">
+        <strong>handleAnalyze(symbol)</strong>
+        Generates a UUID session ID, resets agent statuses, opens WebSocket to
+        <code>ws://localhost:8000/ws/{sessionId}</code>.
+      </div></li>
+      <li><div class="step-num">2</div><div class="step-content">
+        <strong>WS onopen</strong>
+        Sends <code>{ symbol, llm_model, ollama_base_url }</code> to the backend.
+      </div></li>
+      <li><div class="step-num">3</div><div class="step-content">
+        <strong>handleWsMessage</strong>
+        Dispatches incoming events: updates agent statuses, appends to logs,
+        sets reportUrl on <code>crew_complete</code>.
+      </div></li>
+      <li><div class="step-num">4</div><div class="step-content">
+        <strong>handleReset</strong>
+        Closes WebSocket, resets all state back to <code>idle</code>.
+      </div></li>
+    </ol>
+
+    <!-- ─────────────────── 12. useWebSocket ─────────────────── -->
+    <h2 id="fe-ws"><span class="section-icon">🔌</span> <span class="badge badge-js">React</span> useWebSocket.js</h2>
+
+    <span class="filepath">frontend/src/hooks/useWebSocket.js</span>
+
+    <p>Custom hook encapsulating WebSocket lifecycle management.</p>
+    <ul>
+      <li><strong><code>connect()</code></strong> — creates a new <code>WebSocket</code> to
+        <code>${WS_BASE}/ws/${sessionId}</code>, wires <code>onopen</code>, <code>onclose</code>,
+        <code>onerror</code>, <code>onmessage</code>.</li>
+      <li><strong><code>disconnect()</code></strong> — closes the socket and nulls the ref.</li>
+      <li><strong><code>send(data)</code></strong> — serialises to JSON and sends only if socket
+        is in <code>OPEN</code> state.</li>
+      <li><strong><code>readyState</code></strong> — reflects current <code>WebSocket.CONNECTING</code>
+        / <code>OPEN</code> / <code>CLOSED</code>.</li>
+    </ul>
+    <p>Uses a <code>useRef</code> stable reference to the <code>onMessage</code> callback to
+    avoid stale-closure issues during re-renders.</p>
+
+    <!-- ─────────────────── 13. COMPONENTS ─────────────────── -->
+    <h2 id="fe-comp"><span class="section-icon">🧩</span> <span class="badge badge-js">React</span> Components</h2>
+
+    <div class="card">
+      <h4>Header.jsx</h4>
+      <span class="filepath" style="font-size:0.72rem;">frontend/src/components/Header.jsx</span>
+      <p>App title bar. Displays the Ollama connection indicator badge.</p>
+    </div>
+
+    <div class="card">
+      <h4>LLMConfig.jsx</h4>
+      <span class="filepath" style="font-size:0.72rem;">frontend/src/components/LLMConfig.jsx</span>
+      <p>Two-field config panel:
+        (1) Ollama Base URL text input — on <code>onBlur</code> calls <code>GET /api/models</code>
+            to re-fetch models from the new URL.
+        (2) Model dropdown — dynamically populated from Ollama.
+        Falls back to a static list of common model names if Ollama is unreachable.
+      </p>
+    </div>
+
+    <div class="card">
+      <h4>StockInput.jsx</h4>
+      <span class="filepath" style="font-size:0.72rem;">frontend/src/components/StockInput.jsx</span>
+      <p>Ticker symbol search field with:
+        quick-pick buttons for popular tickers
+        (<code>AAPL, TSLA, NVDA, MSFT, GOOGL, AMZN, META, TCS.NS, RELIANCE.NS</code>),
+        clear button, and disabled state during analysis.
+      </p>
+    </div>
+
+    <div class="card">
+      <h4>AgentFlowDiagram.jsx</h4>
+      <span class="filepath" style="font-size:0.72rem;">frontend/src/components/AgentFlowDiagram.jsx</span>
+      <p>Visual three-node pipeline diagram.
+        Each node renders with a colour-coded border and glow based on its
+        <code>status</code> prop:
+        <code>waiting</code> (grey) → <code>active</code> (purple + pulse animation) →
+        <code>complete</code> (teal + ✓ badge) / <code>error</code> (red + ✕ badge).
+        Connecting arrows between nodes show pipeline direction.
+      </p>
+    </div>
+
+    <div class="card">
+      <h4>ActivityLog.jsx</h4>
+      <span class="filepath" style="font-size:0.72rem;">frontend/src/components/ActivityLog.jsx</span>
+      <p>Scrollable real-time event feed. When <code>logs</code> is empty, shows four
+        placeholder hint rows at 45% opacity. Each log entry is colour-coded by
+        <code>type</code> (e.g. <code>tool_use</code> → grey, <code>task_complete</code>
+        → teal, <code>error</code> → red). Auto-scrolls to the bottom on every new entry.
+      </p>
+    </div>
+
+    <div class="card">
+      <h4>ReportViewer.jsx</h4>
+      <span class="filepath" style="font-size:0.72rem;">frontend/src/components/ReportViewer.jsx</span>
+      <p>Shown once <code>crew_complete</code> is received. Provides a download button
+        linking to <code>GET /api/report/{sessionId}</code> which streams the PDF file.
+      </p>
+    </div>
+
+    <!-- ─────────────────── 14. api.js ─────────────────── -->
+    <h2 id="fe-api"><span class="section-icon">📡</span> <span class="badge badge-js">React</span> api.js</h2>
+
+    <span class="filepath">frontend/src/services/api.js</span>
+
+    <p>Thin REST wrapper. Three exported functions:</p>
+    <ul>
+      <li><code>fetchModels(ollamaUrl)</code> — GET <code>/api/models?base_url=…</code></li>
+      <li><code>checkHealth()</code> — GET <code>/api/health</code>, returns <code>boolean</code></li>
+      <li><code>getReportUrl(sessionId)</code> — returns the PDF download URL string</li>
+    </ul>
+    <p>Base URL defaults to <code>http://localhost:8000</code> but can be overridden via
+    <code>REACT_APP_API_URL</code> environment variable.</p>
+
+    <!-- ─────────────────── 15. WS EVENTS ─────────────────── -->
+    <h2 id="ws-events"><span class="section-icon">📨</span> WebSocket Event Reference</h2>
+
+    <p>All events are JSON objects. Direction is always <strong>server → client</strong>
+    except the initial analysis request (<strong>client → server</strong>).</p>
+
+    <h3>Client → Server (once per session)</h3>
+    <pre><code>{
+  <span class="str">"symbol"</span>:         <span class="str">"AAPL"</span>,
+  <span class="str">"llm_model"</span>:      <span class="str">"llama3.2"</span>,
+  <span class="str">"ollama_base_url"</span>: <span class="str">"http://localhost:11434"</span>
+}</code></pre>
+
+    <h3>Server → Client Event Types</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>type</th><th>Key fields</th><th>Frontend action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>started</code></td>
+          <td><code>symbol</code>, <code>llm_model</code></td>
+          <td>Set status = <code>analyzing</code>, log entry</td>
+        </tr>
+        <tr>
+          <td><code>agent_start</code></td>
+          <td><code>agent_id</code>, <code>agent_name</code></td>
+          <td>Set that agent's status = <code>active</code></td>
+        </tr>
+        <tr>
+          <td><code>tool_use</code></td>
+          <td><code>agent_id</code>, <code>tool</code></td>
+          <td>Log entry with 🔧 icon</td>
+        </tr>
+        <tr>
+          <td><code>thinking</code></td>
+          <td><code>agent_id</code>, <code>message</code> (snippet)</td>
+          <td>Log entry with 💭 icon</td>
+        </tr>
+        <tr>
+          <td><code>task_complete</code></td>
+          <td><code>agent_id</code>, <code>summary</code> (400 chars)</td>
+          <td>Set that agent's status = <code>complete</code>, log entry</td>
+        </tr>
+        <tr>
+          <td><code>generating_pdf</code></td>
+          <td><code>message</code></td>
+          <td>Log entry with 📄 icon</td>
+        </tr>
+        <tr>
+          <td><code>crew_complete</code></td>
+          <td><code>pdf_url</code>, <code>session_id</code></td>
+          <td>Set status = <code>complete</code>, show ReportViewer</td>
+        </tr>
+        <tr>
+          <td><code>error</code></td>
+          <td><code>message</code></td>
+          <td>Set status = <code>error</code>, log entry with ❌ icon</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ─────────────────── 16. END-TO-END ─────────────────── -->
+    <h2 id="end-to-end"><span class="section-icon">🔄</span> End-to-End Request Flow</h2>
+
+    <ol class="steps">
+      <li><div class="step-num">1</div><div class="step-content">
+        <strong>User enters ticker (e.g. RELIANCE.NS) and clicks Analyse</strong>
+        App.js generates a UUID session ID, opens WebSocket to
+        <code>ws://localhost:8000/ws/{sessionId}</code>.
+      </div></li>
+      <li><div class="step-num">2</div><div class="step-content">
+        <strong>WebSocket accepted (main.py)</strong>
+        <code>ConnectionManager</code> stores the socket. Client sends
+        <code>{ symbol: "RELIANCE.NS", llm_model, ollama_base_url }</code>.
+      </div></li>
+      <li><div class="step-num">3</div><div class="step-content">
+        <strong>StockAnalysisCrew.run() awaited (crew.py)</strong>
+        Emits <code>started</code> event. Launches <code>_run_crew_sync</code>
+        in <code>asyncio.run_in_executor</code>.
+      </div></li>
+      <li><div class="step-num">4</div><div class="step-content">
+        <strong>Agent 1 – Stock Analyst (stock_analyst.py / analysis_tasks.py)</strong>
+        LLM decides to call <code>StockDataTool</code> → yfinance
+        <code>ticker.info</code> fetched and cached. LLM decides to call
+        <code>TechnicalAnalysisTool</code> → <code>yf.download()</code> + <code>ta</code>
+        indicators. Produces structured text output. Each step emits
+        <code>tool_use</code> / <code>thinking</code> events via queue.
+      </div></li>
+      <li><div class="step-num">5</div><div class="step-content">
+        <strong>Task 1 complete → Agent 2 – News Researcher (news_researcher.py / news_tasks.py)</strong>
+        <code>task_callback</code> emits <code>task_complete</code> + <code>agent_start</code>.
+        For RELIANCE.NS: <code>StockNewsTool</code> calls
+        <code>_fetch_zerodha_pulse_news("RELIANCE.NS")</code> — scrapes Pulse,
+        filters by alias "Reliance". <code>MarketSentimentTool</code> calls
+        DuckDuckGo with Indian-context queries.
+      </div></li>
+      <li><div class="step-num">6</div><div class="step-content">
+        <strong>Task 2 complete → Agent 3 – Investment Strategist (report_writer.py / report_tasks.py)</strong>
+        Receives Agent 1 and Agent 2 outputs as <code>context</code>.
+        Writes 8-section report with BUY/HOLD/SELL recommendation.
+        No tool calls — pure LLM generation.
+      </div></li>
+      <li><div class="step-num">7</div><div class="step-content">
+        <strong>Crew finishes → PDF generation (pdf_generator.py)</strong>
+        <code>_fetch_stock_info</code> returns cached info (zero network cost).
+        <code>generate_pdf_report()</code> builds ReportLab PDF with cover,
+        metrics banner, recommendation badge, 8 sections.
+        Saves to <code>reports/{sessionId}_report.pdf</code>.
+      </div></li>
+      <li><div class="step-num">8</div><div class="step-content">
+        <strong>crew_complete event sent</strong>
+        Browser receives <code>{ type: "crew_complete", pdf_url: "/api/report/{sessionId}" }</code>.
+        ReportViewer renders the download button. User clicks → browser calls
+        <code>GET /api/report/{sessionId}</code> → PDF file streamed.
+      </div></li>
+    </ol>
+
+    <!-- ─────────────────── 17. CACHING ─────────────────── -->
+    <h2 id="caching"><span class="section-icon">🗃️</span> Caching Strategy</h2>
+
+    <p>A module-level, in-process TTL cache in <code>stock_tools.py</code> prevents
+    redundant network calls within the same analysis session.</p>
+
+    <table>
+      <thead><tr><th>Cache key</th><th>Content</th><th>TTL</th><th>Who reads it</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>info:{SYMBOL}</code></td>
+          <td>Full <code>ticker.info</code> dict (30+ fields)</td>
+          <td>5 min</td>
+          <td>Agent 1 (<code>StockDataTool</code>), crew.py (PDF metrics)</td>
+        </tr>
+        <tr>
+          <td><code>hist:{SYMBOL}:{period}</code></td>
+          <td>OHLCV <code>pd.DataFrame</code></td>
+          <td>5 min</td>
+          <td>Agent 1 (<code>TechnicalAnalysisTool</code>)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-tip">
+      <strong>Zero extra network cost for PDF</strong>
+      By the time PDF generation runs, the <code>info:{SYMBOL}</code> cache is already warm
+      from Agent 1's earlier call. <code>crew.py</code> calls
+      <code>_fetch_stock_info(symbol)</code> which returns the cached dict instantly
+      — no HTTP request is made.
+    </div>
+
+    <!-- ─────────────────── 18. NEWS ROUTING ─────────────────── -->
+    <h2 id="news-routing"><span class="section-icon">📰</span> News Routing — Indian vs Global Stocks</h2>
+
+    <span class="filepath">backend/tools/news_tools.py</span>
+
+    <div class="flow-diagram">
+      <div class="flow-row">
+        <div class="flow-box">
+          <div class="box-title">StockNewsTool._run(symbol)</div>
+        </div>
+      </div>
+      <div class="arrow-down">↓</div>
+      <div class="flow-row">
+        <div class="flow-box gold">
+          <div class="box-title">symbol.endswith(".NS") or ".BO"?</div>
+        </div>
+      </div>
+      <div class="arrow-down">↙ YES &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; NO ↘</div>
+      <div class="flow-row" style="gap:60px;">
+        <div class="flow-box teal">
+          <div class="box-title">🇮🇳 Zerodha Pulse</div>
+          <div class="box-sub">pulse.zerodha.com scraper<br/>_fetch_zerodha_pulse_news()</div>
+        </div>
+        <div class="flow-box purple">
+          <div class="box-title">🌐 DuckDuckGo News</div>
+          <div class="box-sub">ddgs.news(query, 12)</div>
+        </div>
+      </div>
+      <div class="arrow-down">↓ (if Pulse returns 0 results)</div>
+      <div class="flow-row">
+        <div class="flow-box purple" style="opacity:0.6;">
+          <div class="box-title">DDG fallback (Indian context)</div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Zerodha Pulse Scraper Details</h3>
+    <ul>
+      <li>Strips <code>.NS</code>/<code>.BO</code>/<code>-EQ</code> suffix to get base ticker.</li>
+      <li>Looks up <code>_NSE_ALIASES</code> dict (50+ tickers → common headline names)
+        e.g. <code>HINDUNILVR → ["HUL", "Hindustan Unilever"]</code>.</li>
+      <li>Fetches the Pulse homepage with browser-like headers. On macOS SSL
+        certificate chain error, retries with <code>verify=False</code>.</li>
+      <li>Parses HTML with BeautifulSoup4; targets <code>#news-list li.item</code>
+        with fallback to <code>&lt;h2&gt;</code> elements.</li>
+      <li>Extracts: title, date (e.g. "3.5 hours ago"), source outlet, summary, URL.</li>
+      <li>Returns up to 12 matching articles (configurable via <code>max_results</code>).</li>
+    </ul>
+
+    <!-- ─────────────────── 19. ERROR HANDLING ─────────────────── -->
+    <h2 id="errors"><span class="section-icon">⚠️</span> Error Handling &amp; Rate-Limit Strategy</h2>
+
+    <h3>yfinance 429 Rate Limiting</h3>
+    <div class="card card-red">
+      <p><strong>Root cause:</strong> yfinance 0.2.x had a broken cookie/crumb layer causing
+      frequent <code>429 Too Many Requests</code> from Yahoo Finance endpoints.</p>
+      <p><strong>Fix:</strong> Upgraded to yfinance ≥1.0.0 (resolves to 1.2.0) which has a
+      completely rewritten HTTP layer with automatic 429 recovery.</p>
+      <p><strong>Additional mitigations in stock_tools.py:</strong></p>
+      <ul>
+        <li><code>_jitter_sleep(lo, hi)</code> — random 1–3s sleep before each outbound call</li>
+        <li><code>yf.download()</code> instead of <code>ticker.history()</code> — hits a
+          less rate-limited endpoint for OHLCV data</li>
+        <li>5-minute TTL cache — at most one fetch per ticker per 5 minutes</li>
+        <li><code>ticker.fast_info</code> fallback — lightweight endpoint when full
+          <code>ticker.info</code> is empty</li>
+      </ul>
+    </div>
+
+    <h3>Zerodha Pulse SSL Error (macOS)</h3>
+    <p>macOS Python installations sometimes fail to verify Zerodha's certificate chain.
+    The scraper catches <code>requests.exceptions.SSLError</code> and automatically
+    retries with <code>verify=False</code>.</p>
+
+    <h3>Agent Graceful Exit</h3>
+    <p>If an agent exceeds its <code>max_iter</code> limit, CrewAI stops the iteration loop
+    and returns the best partial output. The task callback still fires, so downstream
+    agents receive whatever context was produced — the pipeline does not crash.</p>
+
+    <h3>WebSocket Disconnect</h3>
+    <p><code>main.py</code> catches <code>WebSocketDisconnect</code> and calls
+    <code>manager.disconnect(session_id)</code>. Subsequent sends from the crew
+    (still running in the thread pool) are silently dropped in
+    <code>ConnectionManager.send()</code>.</p>
+
+    <!-- ─────────────────── 20. API REFERENCE ─────────────────── -->
+    <h2 id="api-ref"><span class="section-icon">📖</span> REST API Reference</h2>
+
+    <table>
+      <thead>
+        <tr><th>Method</th><th>Endpoint</th><th>Request</th><th>Response</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>GET</td>
+          <td><code>/api/health</code></td>
+          <td>—</td>
+          <td><code>{ "status": "ok", "service": "…" }</code></td>
+        </tr>
+        <tr>
+          <td>GET</td>
+          <td><code>/api/models</code></td>
+          <td><code>?base_url=http://localhost:11434</code></td>
+          <td><code>{ "models": ["llama3.2", …], "connected": true }</code></td>
+        </tr>
+        <tr>
+          <td>GET</td>
+          <td><code>/api/report/{session_id}</code></td>
+          <td>—</td>
+          <td>PDF binary stream (<code>application/pdf</code>) or 404 JSON</td>
+        </tr>
+        <tr>
+          <td>WS</td>
+          <td><code>/ws/{session_id}</code></td>
+          <td>JSON: <code>{ symbol, llm_model, ollama_base_url }</code></td>
+          <td>Stream of JSON event objects (see WebSocket Events section)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ─────────────────── 21. RUNNING ─────────────────── -->
+    <h2 id="running"><span class="section-icon">▶️</span> Running the Application</h2>
+
+    <h3>Prerequisites</h3>
+    <ul>
+      <li>Python 3.11+ (tested on 3.13.7)</li>
+      <li>Node.js 18+ and npm</li>
+      <li>Ollama installed and running (<code>ollama serve</code>)</li>
+      <li>At least one model pulled: <code>ollama pull llama3.2</code></li>
+    </ul>
+
+    <h3>Backend</h3>
+    <pre><code><span class="cm"># From project root</span>
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+<span class="cm"># Start the server</span>
+uvicorn main:app --port <span class="num">8000</span> --reload</code></pre>
+
+    <h3>Frontend</h3>
+    <pre><code>cd frontend
+npm install
+npm start        <span class="cm"># Opens http://localhost:3000</span></code></pre>
+
+    <h3>Environment Variables (<code>backend/.env</code>)</h3>
+    <pre><code>OLLAMA_BASE_URL=http://localhost:11434
+DEFAULT_LLM_MODEL=llama3.2
+REPORTS_DIR=reports</code></pre>
+
+    <h3>Frontend Environment (<code>frontend/.env</code>)</h3>
+    <pre><code>REACT_APP_API_URL=http://localhost:8000
+REACT_APP_WS_URL=ws://localhost:8000</code></pre>
+
+    <div class="callout callout-tip">
+      <strong>Quick health check</strong>
+      After starting the backend, visit <a href="http://localhost:8000/docs" target="_blank">http://localhost:8000/docs</a>
+      for the auto-generated FastAPI Swagger UI, which lists all REST endpoints interactively.
+    </div>
+
+    <hr />
+
+    <p style="font-size:0.78rem; color:var(--text-dim); text-align:center; margin-top:32px;">
+      Generated on 5 March 2026 &nbsp;·&nbsp;
+      CrewAI Multi-Agent Stock Analyser &nbsp;·&nbsp;
+      Python 3.13.7 · FastAPI 0.115.0 · React 18 · yfinance 1.2.0
+    </p>
+
+  </main>
+</div>
+</body>
+</html>
